@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import chainer
-import numpy as np
 from teras.app import App, arg
 import teras.framework.chainer as framework_utils
 import teras.logging as Log
@@ -28,16 +27,7 @@ def train(
         save_to=None,
         seed=None):
     if seed is not None:
-        import random
-        random.seed(seed)
-        np.random.seed(seed)
-        if gpu >= 0:
-            try:
-                import cupy
-                cupy.cuda.runtime.setDevice(gpu)
-                cupy.random.seed(seed)
-            except Exception as e:
-                Log.e(str(e))
+        utils.set_random_seed(seed, gpu)
         Log.i("random seed: {}".format(seed))
     framework_utils.set_debug(App.debug)
 
@@ -64,7 +54,7 @@ def train(
                                 char_embed_size=10)
     Log.i('load train dataset from {}'.format(train_file))
     train_dataset = loader.load(train_file, train=True,
-                                size=12 if utils.is_dev() else None)
+                                size=120 if utils.is_dev() else None)
     if test_file:
         Log.i('load test dataset from {}'.format(test_file))
         test_dataset = loader.load(test_file, train=False,
@@ -148,7 +138,7 @@ def train(
                       accuracy_func=model.compute_accuracy)
     trainer.configure(framework_utils.config)
     if test_dataset:
-        evaluator = models.Evaluator(loader, test_file)
+        evaluator = models.Evaluator(loader, test_file, save_to)
         evaluator.add_target(model)
         trainer.attach_callback(evaluator)
 

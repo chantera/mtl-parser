@@ -20,9 +20,11 @@ USE_ORTHONORMAL = True
 _orthonormal_initializer = Orthonormal()
 _glorotnormal_initializer = chainer.initializers.GlorotNormal()
 
+
 def _get_rnn_initializer():
     return _orthonormal_initializer \
         if USE_ORTHONORMAL else _glorotnormal_initializer
+
 
 if utils.is_dev():
     """
@@ -69,6 +71,7 @@ class _Parser(chainer.link.Chain, TaskWorker):
 
 class MTL(chainer.link.ChainList, TaskWorker):
     _LAYER_CLASSES = [_InputLayer,
+                      _RecurrentLayer,
                       _Tagger,
                       _ConnectionLayer,
                       _Parser]
@@ -327,6 +330,7 @@ class Connection(_ConnectionLayer):
 
 
 class Parser(_Parser):
+    TransitionSystem = transition.ArcHybrid
 
     def __init__(self,
                  in_size,
@@ -334,7 +338,7 @@ class Parser(_Parser):
                  n_blstm_layers=1,
                  lstm_hidden_size=400,
                  parser_mlp_units=800,
-                 dropout=0.50):
+                 dropout=0.5):
         super().__init__()
         with self.init_scope():
             self.parser_blstm = BiLSTM(
@@ -431,11 +435,11 @@ class Parser(_Parser):
                 _, state = _states[i]
                 best_action, best_score = -1, -np.inf
                 for action, score in enumerate(action_scores[i]):
-                    if score > best_score \
-                            and transition.ArcHybrid.is_allowed(action, state):
+                    if score > best_score and \
+                            self.TransitionSystem.is_allowed(action, state):
                         best_action, best_score = action, score
-                transition.ArcHybrid.apply(best_action, state)
-                if transition.ArcHybrid.is_terminal(state):
+                self.TransitionSystem.apply(best_action, state)
+                if self.TransitionSystem.is_terminal(state):
                     del _states[i]
 
         heads, labels, _states = zip(*[(state.heads, state.labels, state)
@@ -455,6 +459,10 @@ class Evaluator(Callback):
         self._gold_file = os.path.abspath(os.path.expanduser(gold_file))
         self._out_dir = os.path.abspath(os.path.expanduser(out_dir)) \
             if out_dir is not None else None
+        basename = os.path.basename(gold_file)
+        accessid = Log.getLogger().accessid
+        date = Log.getLogger().accesstime.strftime('%Y%m%d')
+        self._out_file_format = date + "-" + accessid + ".{}." + basename
 
     def add_target(self, model):
         self._model = model
@@ -468,7 +476,9 @@ class Evaluator(Callback):
         results = self._model.decode(*xs)
 
         if self._has_tagging_task:
-            self._buffer['postags'].extend(v.data for v in results['tags'])
+            tags = results['tags']
+            tags.to_cpu()
+            self._buffer['postags'].extend(tags.data)
         #     true_tags = ts.T[0]
         #     for i, (p_tags, t_tags) in enumerate(
         #             zip(tags_batch, true_tags)):
@@ -482,7 +492,7 @@ class Evaluator(Callback):
 
     def flush(self, out):
         self._loader.write_conll(
-            out, 
+            out,
             self._buffer['sentences'],
             self._buffer['heads'],
             self._buffer['labels'],
@@ -527,17 +537,24 @@ class Evaluator(Callback):
 
     def on_epoch_validate_end(self, data):
         self.on_epoch_train_end(data)
+        if not self._has_parsing_task:
+            return
         if self._out_dir is not None:
-            names = os.path.basename(self._gold_file).split('.', 1)
-            names.insert(str(data['epoch']), 1)
-            filename = '.'.join(names)
-            file = None, os.path.join([self._out_dir, filename])
+            file = os.path.join(
+                self._out_dir, self._out_file_format.format(data['epoch']))
             self.flush(file)
             self.report(file)
         else:
             f = NamedTemporaryFile(mode='w')
             try:
-                self.flush(f.name)  # Note: cannot reopen in flush() on Windows.
+                """
+                Note:
+                Whether the name can be used to open the file a second time,
+                while the named temporary file is still open, varies across
+                platforms (it can be so used on Unix; it cannot on Windows
+                NT or later)
+                """
+                self.flush(f.name)
                 self.report(f.name)
             finally:
                 f.close()
