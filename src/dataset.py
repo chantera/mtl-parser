@@ -102,7 +102,8 @@ class DataLoader(CorpusLoader):
             self._char_transform_one = \
                 self.get_processor('char').transform_one
 
-    def write_conll(self, file, sentences, heads, labels, postags=None):
+    def write_conll(self, file, sentences,
+                    heads=None, labels=None, postags=None):
         with open(file, 'w') as f:
             for i, tokens in enumerate(sentences):
                 _iter = enumerate(tokens)
@@ -116,8 +117,10 @@ class DataLoader(CorpusLoader):
                         self.tag_map.lookup(postags[i][j])
                         if postags is not None else token['postag'],
                         token['feats'],
-                        str(heads[i][j]),
-                        self.rel_map.lookup(labels[i][j]),
+                        str(heads[i][j])
+                        if heads is not None else str(token['head']),
+                        self.rel_map.lookup(labels[i][j])
+                        if labels is not None else token['deprel'],
                         token['phead'],
                         token['pdeprel'],
                     ])
