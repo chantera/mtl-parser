@@ -92,6 +92,9 @@ class MTL(chainer.link.ChainList, TaskWorker):
         super().__init__(*layers)
         self.reset_records()
 
+    def __getitem__(self, layer):
+        return self._layers[layer]
+
     def __contains__(self, layer):
         return layer in self._layers
 
@@ -117,6 +120,9 @@ class MTL(chainer.link.ChainList, TaskWorker):
             y_cache['parser'] = y_parser
         self._y_cache = y_cache
         return y if len(y) > 1 else y[0]
+
+    def forward_layer(self, layer, *args):
+        return self._layers[layer](*args)
 
     def compute_loss(self, ys, ts):
         ts_tags, ts_actions = ts.T
@@ -369,6 +375,7 @@ class Parser(_Parser):
                 ignore_label=-1,
             )
             self._lstm_hidden_size = lstm_hidden_size
+        self.out_size = n_deprels
 
     def __call__(self, features, hs):
         self.hs = self.parser_blstm(hs)
@@ -377,7 +384,13 @@ class Parser(_Parser):
                       for i in range(len(features)))
         fs = F.stack(F.split_axis(fs, fs.shape[0] // 4, axis=0), axis=0)
         fs = F.reshape(fs, (fs.shape[0], -1))
-        action_scores = self.parser_mlp(F.reshape(fs, (fs.shape[0], -1)))
+        h = self.parser_mlp[0](fs)
+        action_scores = self.parser_mlp[1](h)
+        self.cache = {
+            'h0': fs,
+            'h1': h,
+            'y': action_scores,
+        }
         return action_scores
 
     def _populate_features(self, features, batch_index):

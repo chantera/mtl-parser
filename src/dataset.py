@@ -22,7 +22,7 @@ class DataLoader(CorpusLoader):
                  word_preprocess=lambda x: x.lower(),
                  word_unknown="<UNK>",
                  embed_dtype='float32',
-                 convert_cc_head=False):
+                 mode='mtl'):
         super(DataLoader, self).__init__(reader=ConllReader())
         self.use_pretrained = word_embed_file is not None
         self.add_processor(
@@ -40,8 +40,21 @@ class DataLoader(CorpusLoader):
         self.rel_map = text.Vocab()
         DataLoader.PAD_CHAR_INDEX = self.get_processor('char') \
             .fit_transform_one([_CHAR_PADDING])[-1]
+        self.set_mode(mode)
+
+    def set_mode(self, mode):
+        if mode == 'mtl':
+            self._gen_sample = self.map_to_mtl_sample
+        elif mode == 'beamparsing':
+            self._gen_sample = self.map_to_beamparsing_sample
+        else:
+            raise ValueError("Invalid mode is specified: `{}`".format(mode))
+        self.mode = mode
 
     def map(self, item):
+        return self._gen_sample(item)
+
+    def map_to_mtl_sample(self, item):
         """
         item -> (words, chars, features, weakref_of_gold_postags,
                  tokens,  # without projectivization for evaluation
@@ -66,6 +79,18 @@ class DataLoader(CorpusLoader):
         sample = (words, chars, features, weakref.ref(postags),
                   item if not self._train else None,  # for eval
                   (postags, actions))
+        return sample
+
+    def map_to_beamparsing_sample(self, item):
+        """
+        item -> (words, chars, action,
+                 tokens,  # without projectivization for evaluation
+                 0)
+        """
+        sample = self.map_to_mtl_sample(item)
+        sample = (sample[0], sample[1], sample[5][1],
+                  sample[4],
+                  0)
         return sample
 
     def _extract_gold_transition(self, gold_heads, gold_labels):
