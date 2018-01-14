@@ -143,13 +143,28 @@ class BeamParser(chainer.Chain):
                         gold = new_item
                     beam.append(new_item)
             beam.prune(key=lambda x: (float(x[0]), x[1], -x[2]))
-            if stop_early and all(gold[3] is not item[3]
-                                  for item in beam.items):
-                beam.items[-1] = gold
-                is_done = True
+            is_gold_in_beam = any(item[1] for item in beam.items)
+            if is_done and is_gold_in_beam:
+                """
+                case: all states are terminal
+                and the gold state does not fall
+                """
+                gold_index = -1
+                for i, item in enumerate(beam.items):
+                    if item[1]:
+                        gold_index = i
+                        break
+                beam.items[-1], beam.items[gold_index] = \
+                    beam.items[gold_index], beam.items[-1]
+            elif not is_gold_in_beam:
+                """
+                case: gold state falls out
+                """
+                if stop_early:
+                    beam.items[-1] = gold
+                    is_done = True
             if not is_done:
                 next_targets.append((beam_index, beam))
-            # @TODO: check all done and gold does not fall
         beams[:] = next_targets
 
     def compute_loss(self, ys, ts):
@@ -257,11 +272,11 @@ def train(
     loader.set_mode('beamparsing')
     Log.i('load train dataset from {}'.format(train_file))
     train_dataset = loader.load(train_file, train=True,
-                                size=120 if utils.is_dev() else None)
+                                size=1200 if utils.is_dev() else None)
     if test_file:
         Log.i('load test dataset from {}'.format(test_file))
         test_dataset = loader.load(test_file, train=False,
-                                   size=16 if utils.is_dev() else None)
+                                   size=160 if utils.is_dev() else None)
     else:
         test_dataset = None
 
