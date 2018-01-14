@@ -512,6 +512,9 @@ class Evaluator(Callback):
         else:
             Log.i("[evaluation] ERROR: " + p.stderr.rstrip())
 
+    def on_batch_begin(self, data):
+        pass
+
     def on_batch_end(self, data):
         if data['train']:
             return
