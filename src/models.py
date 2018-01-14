@@ -533,6 +533,9 @@ class Evaluator(Callback):
             return
         self.decode(data['xs'], data['ts'])
 
+    def on_epoch_train_begin(self, data):
+        pass
+
     def on_epoch_train_end(self, data):
         records = self._model.get_records()
         if self._has_tagging_task:
