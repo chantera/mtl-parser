@@ -61,22 +61,24 @@ class DataLoader(CorpusLoader):
         gold_heads, gold_rels = np.array(heads), np.array(rels)
         transition.projectivize(gold_heads)
         actions, features = \
-            self._extract_gold_transition(gold_heads, gold_rels)
+            self._extract_gold_transition(gold_heads, gold_rels,
+                                          transition.ArcStandard)
 
         sample = (words, chars, features, weakref.ref(postags),
                   item if not self._train else None,  # for eval
                   (postags, actions))
         return sample
 
-    def _extract_gold_transition(self, gold_heads, gold_labels):
+    def _extract_gold_transition(self, gold_heads, gold_labels,
+                                 transition_system=transition.ArcStandard):
         features = []
         state = transition.GoldState(gold_heads, gold_labels)
-        while not transition.ArcHybrid.is_terminal(state):
+        while not transition_system.is_terminal(state):
             feature = models.Parser.extract_feature(state)
             feature.extend(state.heads)
             features.append(feature)
-            action = transition.ArcHybrid.get_oracle(state)
-            transition.ArcHybrid.apply(action, state)
+            action = transition_system.get_oracle(state)
+            transition_system.apply(action, state)
         return np.array(state.history, np.int32), np.array(features, np.int32)
 
     def load(self, file, train=False, size=None):

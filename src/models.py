@@ -330,7 +330,7 @@ class Connection(_ConnectionLayer):
 
 
 class Parser(_Parser):
-    TransitionSystem = transition.ArcHybrid
+    TransitionSystem = transition.ArcStandard
 
     def __init__(self,
                  in_size,
