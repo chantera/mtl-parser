@@ -328,7 +328,6 @@ class Connection(_ConnectionLayer):
 
 
 class Parser(_Parser):
-    TransitionSystem = transition.ArcStandard
 
     def __init__(self,
                  in_size,
@@ -336,7 +335,8 @@ class Parser(_Parser):
                  n_blstm_layers=1,
                  lstm_hidden_size=400,
                  parser_mlp_units=800,
-                 dropout=0.5):
+                 dropout=0.5,
+                 transition_system=transition.ArcStandard):
         super().__init__()
         with self.init_scope():
             self.parser_blstm = BiLSTM(
@@ -367,6 +367,7 @@ class Parser(_Parser):
                 ignore_label=-1,
             )
             self._lstm_hidden_size = lstm_hidden_size
+        self.transition_system = transition_system
 
     def __call__(self, features, hs):
         self.hs = self.parser_blstm(hs)
@@ -434,10 +435,10 @@ class Parser(_Parser):
                 best_action, best_score = -1, -np.inf
                 for action, score in enumerate(action_scores[i]):
                     if score > best_score and \
-                            self.TransitionSystem.is_allowed(action, state):
+                            self.transition_system.is_allowed(action, state):
                         best_action, best_score = action, score
-                self.TransitionSystem.apply(best_action, state)
-                if self.TransitionSystem.is_terminal(state):
+                self.transition_system.apply(best_action, state)
+                if self.transition_system.is_terminal(state):
                     del _states[i]
 
         heads, labels, _states = zip(*[(state.heads, state.labels, state)
