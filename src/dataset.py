@@ -22,7 +22,7 @@ class DataLoader(CorpusLoader):
                  word_preprocess=lambda x: x.lower(),
                  word_unknown="<UNK>",
                  embed_dtype='float32',
-                 convert_cc_head=False):
+                 transition_system=transition.ArcStandard):
         super(DataLoader, self).__init__(reader=ConllReader())
         self.use_pretrained = word_embed_file is not None
         self.add_processor(
@@ -30,16 +30,19 @@ class DataLoader(CorpusLoader):
             embed_file=word_embed_file,
             embed_size=word_embed_size,
             embed_dtype=embed_dtype,
+            initializer=text.standard_normal,
             preprocess=word_preprocess, unknown=word_unknown,
             min_frequency=1)
         self.add_processor(
             'char', embed_size=char_embed_size,
             embed_dtype=embed_dtype,
+            initializer=text.standard_normal,
             preprocess=False)
         self.tag_map = text.Vocab()
         self.rel_map = text.Vocab()
         DataLoader.PAD_CHAR_INDEX = self.get_processor('char') \
             .fit_transform_one([_CHAR_PADDING])[-1]
+        self.transition_system = transition_system
 
     def map(self, item):
         """
@@ -61,22 +64,24 @@ class DataLoader(CorpusLoader):
         gold_heads, gold_rels = np.array(heads), np.array(rels)
         transition.projectivize(gold_heads)
         actions, features = \
-            self._extract_gold_transition(gold_heads, gold_rels)
+            self._extract_gold_transition(gold_heads, gold_rels,
+                                          self.transition_system)
 
         sample = (words, chars, features, weakref.ref(postags),
                   item if not self._train else None,  # for eval
                   (postags, actions))
         return sample
 
-    def _extract_gold_transition(self, gold_heads, gold_labels):
+    def _extract_gold_transition(self, gold_heads, gold_labels,
+                                 transition_system=transition.ArcStandard):
         features = []
         state = transition.GoldState(gold_heads, gold_labels)
-        while not transition.ArcHybrid.is_terminal(state):
+        while not transition_system.is_terminal(state):
             feature = models.Parser.extract_feature(state)
             feature.extend(state.heads)
             features.append(feature)
-            action = transition.ArcHybrid.get_oracle(state)
-            transition.ArcHybrid.apply(action, state)
+            action = transition_system.get_oracle(state)
+            transition_system.apply(action, state)
         return np.array(state.history, np.int32), np.array(features, np.int32)
 
     def load(self, file, train=False, size=None):
@@ -100,7 +105,8 @@ class DataLoader(CorpusLoader):
             self._char_transform_one = \
                 self.get_processor('char').transform_one
 
-    def write_conll(self, file, sentences, heads, labels, postags=None):
+    def write_conll(self, file, sentences,
+                    heads=None, labels=None, postags=None):
         with open(file, 'w') as f:
             for i, tokens in enumerate(sentences):
                 _iter = enumerate(tokens)
@@ -114,8 +120,10 @@ class DataLoader(CorpusLoader):
                         self.tag_map.lookup(postags[i][j])
                         if postags is not None else token['postag'],
                         token['feats'],
-                        str(heads[i][j]),
-                        self.rel_map.lookup(labels[i][j]),
+                        str(heads[i][j])
+                        if heads is not None else str(token['head']),
+                        self.rel_map.lookup(labels[i][j])
+                        if labels is not None else token['deprel'],
                         token['phead'],
                         token['pdeprel'],
                     ])
