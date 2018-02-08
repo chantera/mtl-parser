@@ -22,7 +22,7 @@ class DataLoader(CorpusLoader):
                  word_preprocess=lambda x: x.lower(),
                  word_unknown="<UNK>",
                  embed_dtype='float32',
-                 convert_cc_head=False):
+                 transition_system=transition.ArcStandard):
         super(DataLoader, self).__init__(reader=ConllReader())
         self.use_pretrained = word_embed_file is not None
         self.add_processor(
@@ -30,16 +30,19 @@ class DataLoader(CorpusLoader):
             embed_file=word_embed_file,
             embed_size=word_embed_size,
             embed_dtype=embed_dtype,
+            initializer=text.standard_normal,
             preprocess=word_preprocess, unknown=word_unknown,
             min_frequency=1)
         self.add_processor(
             'char', embed_size=char_embed_size,
             embed_dtype=embed_dtype,
+            initializer=text.standard_normal,
             preprocess=False)
         self.tag_map = text.Vocab()
         self.rel_map = text.Vocab()
         DataLoader.PAD_CHAR_INDEX = self.get_processor('char') \
             .fit_transform_one([_CHAR_PADDING])[-1]
+        self.transition_system = transition_system
 
     def map(self, item):
         """
@@ -62,7 +65,7 @@ class DataLoader(CorpusLoader):
         transition.projectivize(gold_heads)
         actions, features = \
             self._extract_gold_transition(gold_heads, gold_rels,
-                                          transition.ArcStandard)
+                                          self.transition_system)
 
         sample = (words, chars, features, weakref.ref(postags),
                   item if not self._train else None,  # for eval
