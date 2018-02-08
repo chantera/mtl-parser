@@ -312,8 +312,6 @@ class Connection(_ConnectionLayer):
                 out_size=tag_embed_size,
                 initialW=None
             )
-            self.bilstm = BiLSTM(1, in_size, out_size // 2, dropout,
-                                 initialW=_get_rnn_initializer())
 
     def __call__(self, hs, tag_scores):
         H = []
@@ -333,7 +331,7 @@ class Parser(_Parser):
     def __init__(self,
                  in_size,
                  n_deprels=43,
-                 n_blstm_layers=1,
+                 n_blstm_layers=2,
                  lstm_hidden_size=400,
                  parser_mlp_units=800,
                  dropout=0.5):
@@ -360,13 +358,6 @@ class Parser(_Parser):
                 MLP.Layer(parser_mlp_units, 1 + 2 * n_deprels,
                           initialW=_glorotnormal_initializer),
             ])
-            self.span_embed = chainer.links.EmbedID(
-                in_size=4,
-                out_size=10,
-                initialW=_glorotnormal_initializer,
-                ignore_label=-1,
-            )
-            self._lstm_hidden_size = lstm_hidden_size
 
     def __call__(self, features, hs):
         self.hs = self.parser_blstm(hs)
