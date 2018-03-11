@@ -286,8 +286,6 @@ class GoldTagger(_Tagger):
         self.identity = self.xp.identity(out_size)
 
     def __call__(self, xs, ts):
-        if not isinstance(xs, chainer.Variable):
-            xs = F.pad_sequence(xs)
         ys = (self.xp.array(self.identity[t_ref()]) for t_ref in ts)
         ys = F.pad_sequence(ys)
         self._ys = ys
@@ -301,8 +299,6 @@ class GoldTagger(_Tagger):
 class Connection(_ConnectionLayer):
 
     def __init__(self,
-                 in_size,
-                 out_size,
                  tagset_size,
                  tag_embed_size=50,
                  dropout=0.5):
@@ -314,8 +310,6 @@ class Connection(_ConnectionLayer):
                 out_size=tag_embed_size,
                 initialW=None
             )
-            self.bilstm = BiLSTM(1, in_size, out_size // 2, dropout,
-                                 initialW=_get_rnn_initializer())
 
     def __call__(self, hs, tag_scores):
         H = []
@@ -330,15 +324,15 @@ class Connection(_ConnectionLayer):
 
 
 class Parser(_Parser):
-    TransitionSystem = transition.ArcHybrid
 
     def __init__(self,
                  in_size,
                  n_deprels=43,
-                 n_blstm_layers=1,
+                 n_blstm_layers=2,
                  lstm_hidden_size=400,
                  parser_mlp_units=800,
-                 dropout=0.5):
+                 dropout=0.5,
+                 transition_system=transition.ArcStandard):
         super().__init__()
         with self.init_scope():
             self.parser_blstm = BiLSTM(
@@ -362,13 +356,7 @@ class Parser(_Parser):
                 MLP.Layer(parser_mlp_units, 1 + 2 * n_deprels,
                           initialW=_glorotnormal_initializer),
             ])
-            self.span_embed = chainer.links.EmbedID(
-                in_size=4,
-                out_size=10,
-                initialW=_glorotnormal_initializer,
-                ignore_label=-1,
-            )
-            self._lstm_hidden_size = lstm_hidden_size
+        self.transition_system = transition_system
 
     def __call__(self, features, hs):
         self.hs = self.parser_blstm(hs)
@@ -436,10 +424,10 @@ class Parser(_Parser):
                 best_action, best_score = -1, -np.inf
                 for action, score in enumerate(action_scores[i]):
                     if score > best_score and \
-                            self.TransitionSystem.is_allowed(action, state):
+                            self.transition_system.is_allowed(action, state):
                         best_action, best_score = action, score
-                self.TransitionSystem.apply(best_action, state)
-                if self.TransitionSystem.is_terminal(state):
+                self.transition_system.apply(best_action, state)
+                if self.transition_system.is_terminal(state):
                     del _states[i]
 
         heads, labels, _states = zip(*[(state.heads, state.labels, state)
@@ -479,10 +467,6 @@ class Evaluator(Callback):
             tags = results['tags']
             tags.to_cpu()
             self._buffer['postags'].extend(tags.data)
-        #     true_tags = ts.T[0]
-        #     for i, (p_tags, t_tags) in enumerate(
-        #             zip(tags_batch, true_tags)):
-        #         # @TODO: evaluate tags
 
         if self._has_parsing_task:
             self._buffer['heads'].extend(results['heads'])
@@ -494,12 +478,30 @@ class Evaluator(Callback):
         self._loader.write_conll(
             out,
             self._buffer['sentences'],
-            self._buffer['heads'],
-            self._buffer['labels'],
+            self._buffer['heads']
+            if len(self._buffer['heads']) > 0 else None,
+            self._buffer['labels']
+            if len(self._buffer['labels']) > 0 else None,
             self._buffer['postags']
             if len(self._buffer['postags']) > 0 else None)
 
     def report(self, target):
+        if self._has_tagging_task:
+            postag_count = 0
+            postag_correct = 0
+            for tokens, postags in \
+                    zip(self._buffer['sentences'], self._buffer['postags']):
+                _iter = enumerate(tokens)
+                next(_iter)
+                for j, token in _iter:
+                    postag_count += 1
+                    if token['postag'] == \
+                            self._loader.tag_map.lookup(postags[j]):
+                        postag_correct += 1
+            Log.i("[evaluation] tagging accuracy: {:.6f}"
+                  .format((postag_correct / postag_count) * 100))
+        if not self._has_parsing_task:
+            return
         command = [self.PERL, self.SCRIPT,
                    '-g', self._gold_file, '-s', target, '-q']
         Log.v("exec command: {}".format(' '.join(command)))
@@ -540,8 +542,6 @@ class Evaluator(Callback):
 
     def on_epoch_validate_end(self, data):
         self.on_epoch_train_end(data)
-        if not self._has_parsing_task:
-            return
         if self._out_dir is not None:
             file = os.path.join(
                 self._out_dir, self._out_file_format.format(data['epoch']))

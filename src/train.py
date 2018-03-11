@@ -9,6 +9,7 @@ from teras.training import Trainer
 
 import dataset
 import models
+import transition
 import utils
 
 
@@ -20,7 +21,7 @@ def train(
         n_epoch=20,
         batch_size=32,
         lr=0.001,
-        l2_lambda=0.0001,
+        l2_lambda=0.0,
         grad_clip=5.0,
         tasks='tp',
         gpu=-1,
@@ -46,12 +47,18 @@ def train(
     Log.i('Task: tagging={}, parsing={}'
           .format(with_tagging_task, with_parsing_task))
 
+    # Transition System
+    transition_system = transition.ArcStandard
+    if with_parsing_task:
+        Log.i('Transition System: {}'.format(transition_system))
+
     # Load files
     Log.i('initialize DataLoader with embed_file={} and embed_size={}'
           .format(embed_file, embed_size))
     loader = dataset.DataLoader(word_embed_file=embed_file,
                                 word_embed_size=embed_size,
-                                char_embed_size=10)
+                                char_embed_size=10,
+                                transition_system=transition_system)
     Log.i('load train dataset from {}'.format(train_file))
     train_dataset = loader.load(train_file, train=True,
                                 size=120 if utils.is_dev() else None)
@@ -95,18 +102,17 @@ def train(
     if with_parsing_task:
         layers.extend([
             models.Connection(
-                in_size=400 * 2,
-                out_size=800,
                 tagset_size=len(loader.tag_map),
                 tag_embed_size=50,
                 dropout=0.5),
             models.Parser(
                 in_size=850,
                 n_deprels=len(loader.rel_map),
-                n_blstm_layers=1,
+                n_blstm_layers=2,
                 lstm_hidden_size=400,
                 parser_mlp_units=800,
-                dropout=0.50),
+                dropout=0.50,
+                transition_system=transition_system),
         ])
     model = models.MTL(*layers)
     if gpu >= 0:
@@ -182,14 +188,11 @@ if __name__ == "__main__":
         arg('--gradclip', type=float, default=5.0,
             help='L2 norm threshold of gradient norm'),
         'l2_lambda':
-        arg('--l2', type=float, default=0.0001,
+        arg('--l2', type=float, default=0.0,
             help='Strength of L2 regularization'),
         'lr':
         arg('--lr', type=float, default=0.001,
             help='Learning Rate'),
-        # 'model_params':
-        # arg('--model', action='store_dict', default={},
-        #     help='Model hyperparameter'),
         'n_epoch':
         arg('--epoch', '-e', type=int, default=20,
             help='Number of sweeps over the dataset to train'),
