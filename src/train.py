@@ -102,15 +102,13 @@ def train(
     if with_parsing_task:
         layers.extend([
             models.Connection(
-                in_size=400 * 2,
-                out_size=800,
                 tagset_size=len(loader.tag_map),
                 tag_embed_size=50,
                 dropout=0.5),
             models.Parser(
                 in_size=850,
                 n_deprels=len(loader.rel_map),
-                n_blstm_layers=1,
+                n_blstm_layers=2,
                 lstm_hidden_size=400,
                 parser_mlp_units=800,
                 dropout=0.50,

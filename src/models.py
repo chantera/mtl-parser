@@ -299,8 +299,6 @@ class GoldTagger(_Tagger):
 class Connection(_ConnectionLayer):
 
     def __init__(self,
-                 in_size,
-                 out_size,
                  tagset_size,
                  tag_embed_size=50,
                  dropout=0.5):

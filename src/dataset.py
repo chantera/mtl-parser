@@ -78,7 +78,6 @@ class DataLoader(CorpusLoader):
         state = transition.GoldState(gold_heads, gold_labels)
         while not transition_system.is_terminal(state):
             feature = models.Parser.extract_feature(state)
-            feature.extend(state.heads)
             features.append(feature)
             action = transition_system.get_oracle(state)
             transition_system.apply(action, state)
